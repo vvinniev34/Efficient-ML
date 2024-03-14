@@ -11,7 +11,7 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split,ConcatDataset
 import pickle
 
-all_activations = np.empty((0, 2))
+all_activations = []
 
 stats = ((0.5074,0.4867,0.4411),(0.2011,0.1987,0.2025))
 train_transform = tt.Compose([
@@ -47,8 +47,8 @@ for test_item in test_data:
         test_classes_items[label] += 1
 
 BATCH_SIZE=128
-train_dl = DataLoader(train_data,BATCH_SIZE,num_workers=0,pin_memory=True,shuffle=True)
-test_dl = DataLoader(test_data,BATCH_SIZE,num_workers=0,pin_memory=True)
+train_dl = DataLoader(train_data,BATCH_SIZE,num_workers=4,pin_memory=True,shuffle=True)
+test_dl = DataLoader(test_data,BATCH_SIZE,num_workers=4,pin_memory=True)
 
 def get_device():
     if torch.cuda.is_available():
@@ -90,9 +90,9 @@ class BaseModel(nn.Module):
         loss = F.cross_entropy(out,labels)
         return loss
     
-    def validation_step(self,batch):
+    def validation_step(self,batch,last_activation=False):
         images,labels = batch
-        out = self(images)
+        out = self(images, get_activations=last_activation)
         loss = F.cross_entropy(out,labels)
         acc = accuracy(out,labels)
         return {"val_loss":loss.detach(),"val_acc":acc}
@@ -173,7 +173,7 @@ class MResnet(BaseModel):
         self.flatt = nn.Flatten()
         self.final = nn.Linear(1024, num_classes)
         
-    def forward(self,inputs):
+    def forward(self,inputs, get_activations=False):
         out = self.stg1(inputs)
         
         # stage 2
@@ -197,19 +197,19 @@ class MResnet(BaseModel):
 
         out = self.avgpool(out)
         out = self.flatt(out)
-
-        activations = out
-        tensor_list = np.array(activations.tolist())
-        np.concatenate((all_activations, tensor_list), axis=0)
+        
+        if get_activations:
+            global all_activations
+            activations = out
+            tensor_list = activations.tolist()
+            all_activations += tensor_list
+            # tensor_list = np.array(activations.tolist())
+            # np.concatenate((all_activations, tensor_list), axis=0)
         
         # batch size x hidden dimension, concatenate to get full activations
         # library captum: https://captum.ai/api/layer.html#layer-activation
 
         out = self.final(out)
-        
-
-        # out = self.classifier(out)
-        
         
         return out
         
@@ -218,9 +218,9 @@ model = MResnet(3,100)
 model = to_device(model,device)
 
 @torch.no_grad()
-def evaluate(model,test_dl):
+def evaluate(model,test_dl, last_activation=False):
     model.eval()
-    outputs = [model.validation_step(batch) for batch in test_dl]
+    outputs = [model.validation_step(batch, last_activation) for batch in test_dl]
     return model.validation_epoch_end(outputs)
 
 def get_lr(optimizer):
@@ -258,7 +258,11 @@ def fit (epochs,train_dl,test_dl,model,optimizer,max_lr,weight_decay,scheduler,g
             
             scheduler.step()
             lrs.append(get_lr(optimizer))
-        result = evaluate(model,test_dl)
+        result = None
+        if (epoch == epochs - 1):
+            result = evaluate(model,test_dl, True)
+        else:
+            result = evaluate(model,test_dl)
         result["train_loss"] = torch.stack(train_loss).mean().item()
         result["lrs"] = lrs
         
@@ -280,7 +284,10 @@ scheduler = torch.optim.lr_scheduler.OneCycleLR
 history += fit(epochs=epochs,train_dl=train_dl,test_dl=test_dl,model=model,optimizer=optimizer,max_lr=max_lr,grad_clip=grad_clip,
               weight_decay=weight_decay,scheduler=torch.optim.lr_scheduler.OneCycleLR)
 
-torch.save(model.state_dict(),"resnet128.pth")
-
+# torch.save(model.state_dict(),"resnet128.pth")
+print(f'{len(all_activations)} {len(all_activations[0])}')
 with open("all_activations.pkl", "wb") as file:
     pickle.dump(all_activations , file)
+
+# all_activations_np = np.array(all_activations)
+# np.savetxt("all_activations.txt", all_activations_np)

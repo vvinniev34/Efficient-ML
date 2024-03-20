@@ -13,6 +13,24 @@ import pickle
 
 all_activations = []
 
+kmeans_128 = []
+with open('kmeans_128.pkl', 'rb') as f:
+    kmeans_128 = pickle.load(f)
+kmeans_256 = []
+with open('kmeans_256.pkl', 'rb') as f:
+    kmeans_256 = pickle.load(f)
+kmeans_512 = []
+with open('kmeans_512.pkl', 'rb') as f:
+    kmeans_512 = pickle.load(f)
+
+# for row in kmeans_256:
+#     print(row)
+
+def find_closest_centroid(row, centroids):
+    distances = np.linalg.norm(centroids - row, axis=1)  # Calculate Euclidean distances
+    closest_row_index = np.argmin(distances)  # Find the index of the closest row
+    return centroids[closest_row_index]
+
 stats = ((0.5074,0.4867,0.4411),(0.2011,0.1987,0.2025))
 train_transform = tt.Compose([
     tt.RandomHorizontalFlip(),
@@ -148,21 +166,18 @@ class MResnet(BaseModel):
         self.conv2 = block(64,[64,256],3,1,conv=True)
         self.ident2 = block(256,[64,256],3,1)
 
-        
         ##stage 3
         self.convShortcut3 = conv_shortcut(256,512,2)
         
         self.conv3 = block(256,[128,512],3,2,conv=True)
         self.ident3 = block(512,[128,512],3,2)
 
-        
         ##stage 4
         self.convShortcut4 = conv_shortcut(512,1024,2)
         
         self.conv4 = block(512,[256,1024],3,2,conv=True)
         self.ident4 = block(1024,[256,1024],3,2)
-        
-        
+    
         ##Classify
         self.classifier = nn.Sequential(
                                        nn.AvgPool2d(kernel_size=(4)),
@@ -203,16 +218,18 @@ class MResnet(BaseModel):
             activations = out
             tensor_list = activations.tolist()
             all_activations += tensor_list
-            # tensor_list = np.array(activations.tolist())
-            # np.concatenate((all_activations, tensor_list), axis=0)
-        
-        # batch size x hidden dimension, concatenate to get full activations
-        # library captum: https://captum.ai/api/layer.html#layer-activation
+
+        activations = out
+        for i in range(len(activations)):
+            tensor = np.array(activations[i].tolist())
+            closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans_128), device='cuda') 
+            # closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans_256), device='cuda')
+            # closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans_512), device='cuda')
+            print(closest_centroid)
+            out[i] = closest_centroid
 
         out = self.final(out)
-        
         return out
-        
         
 model = MResnet(3,100)
 model = to_device(model,device)
@@ -259,7 +276,9 @@ def fit (epochs,train_dl,test_dl,model,optimizer,max_lr,weight_decay,scheduler,g
             scheduler.step()
             lrs.append(get_lr(optimizer))
         result = None
-        if (epoch == epochs - 1):
+
+        get_activations = False
+        if (get_activations and epoch == epochs - 1):
             result = evaluate(model,test_dl, True)
         else:
             result = evaluate(model,test_dl)
@@ -285,9 +304,9 @@ history += fit(epochs=epochs,train_dl=train_dl,test_dl=test_dl,model=model,optim
               weight_decay=weight_decay,scheduler=torch.optim.lr_scheduler.OneCycleLR)
 
 # torch.save(model.state_dict(),"resnet128.pth")
-print(f'{len(all_activations)} {len(all_activations[0])}')
-with open("all_activations.pkl", "wb") as file:
-    pickle.dump(all_activations , file)
+# print(f'{len(all_activations)} {len(all_activations[0])}')
+# with open("all_activations.pkl", "wb") as file:
+#     pickle.dump(all_activations , file)
 
 # all_activations_np = np.array(all_activations)
 # np.savetxt("all_activations.txt", all_activations_np)

@@ -220,8 +220,6 @@ class MResnet(BaseModel):
             for i in range(len(activations)):
                 tensor = np.array(activations[i].tolist())
                 closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans[k_size]), device='cuda') 
-                # closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans_256), device='cuda')
-                # closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans_512), device='cuda')
                 out[i] = closest_centroid
 
         out = self.final(out)

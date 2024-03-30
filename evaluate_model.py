@@ -11,21 +11,31 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split,ConcatDataset
 import pickle
 
+clusters = [128, 256, 512, 1024, 2048, 4096, 6144, 8192, 9216]
 kmeans_128 = []
-with open('kmeans_128.pkl', 'rb') as f:
-    kmeans_128 = pickle.load(f)
 kmeans_256 = []
-with open('kmeans_256.pkl', 'rb') as f:
-    kmeans_256 = pickle.load(f)
 kmeans_512 = []
-with open('kmeans_512.pkl', 'rb') as f:
-    kmeans_512 = pickle.load(f)
-
+kmeans_1024 = []
+kmeans_2048 = []
+kmeans_4096 = []
+kmeans_6144 = []
+kmeans_8192 = []
+kmeans_9216 = []
 kmeans = {
     128: kmeans_128,
     256: kmeans_256,
     512: kmeans_512,
+    1024: kmeans_1024,
+    2048: kmeans_2048,
+    4096: kmeans_4096,
+    6144: kmeans_6144,
+    8192: kmeans_8192,
+    9216: kmeans_9216,
 }
+
+for cluster in clusters:
+    with open(f'kmeans_{cluster}.pkl', 'rb') as f:
+        kmeans[cluster] = pickle.load(f)
 
 def find_closest_centroid(row, centroids):
     distances = np.linalg.norm(centroids - row, axis=1)  # Calculate Euclidean distances
@@ -181,9 +191,10 @@ class MResnet(BaseModel):
     
         ##Classify
         self.classifier = nn.Sequential(
-                                       nn.AvgPool2d(kernel_size=(4)),
-                                       nn.Flatten(),
-                                       nn.Linear(1024,num_classes))
+            nn.AvgPool2d(kernel_size=(4)),
+            nn.Flatten(),
+            nn.Linear(1024,num_classes)
+        )
         
         self.avgpool = nn.AvgPool2d(kernel_size=(4))
         self.flatt = nn.Flatten()
@@ -235,5 +246,11 @@ def evaluate(model,test_dl,k_size=-1):
     outputs = [model.validation_step(batch,k_size=k_size) for batch in test_dl]
     return model.validation_epoch_end(outputs)
 
-results = [evaluate(model,test_dl), evaluate(model,test_dl,128), evaluate(model,test_dl,256), evaluate(model,test_dl,512)]
-print(results)
+result = evaluate(model,test_dl)
+print(result)
+results = [result]
+for cluster in clusters:
+    result = evaluate(model,test_dl,cluster)
+    results.append(results)
+    print(f"{cluster:3d}: {result}")
+

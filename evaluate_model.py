@@ -11,6 +11,8 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split,ConcatDataset
 import pickle
 
+numerator = 7
+denominator = 8
 clusters = [128, 256, 512, 1024, 2048, 4096, 6144, 8192, 9216]
 kmeans_128 = []
 kmeans_256 = []
@@ -34,7 +36,8 @@ kmeans = {
 }
 
 for cluster in clusters:
-    with open(f'kmeans_{cluster}.pkl', 'rb') as f:
+    #{numerator}div{denominator}
+    with open(f'clusters/kmeans_{cluster}_{numerator}div{denominator}.pkl', 'rb') as f:
         kmeans[cluster] = pickle.load(f)
 
 def find_closest_centroid(row, centroids):
@@ -229,9 +232,17 @@ class MResnet(BaseModel):
             global kmeans
             activations = out
             for i in range(len(activations)):
+                # tensor = np.array(activations[i].tolist())
+                # closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans[k_size]), device='cuda') 
+                # out[i] = closest_centroid
+
                 tensor = np.array(activations[i].tolist())
-                closest_centroid = torch.tensor(find_closest_centroid(tensor, kmeans[k_size]), device='cuda') 
-                out[i] = closest_centroid
+                midpoint = numerator * (len(tensor) // denominator)
+                first_half = tensor[:midpoint]
+                second_half = tensor[midpoint:]
+                closest_centroid = find_closest_centroid(first_half, kmeans[k_size])
+                quantized_tensor = torch.tensor(np.concatenate((closest_centroid, second_half)), device='cuda') 
+                out[i] = quantized_tensor
 
         out = self.final(out)
         return out
@@ -246,11 +257,11 @@ def evaluate(model,test_dl,k_size=-1):
     outputs = [model.validation_step(batch,k_size=k_size) for batch in test_dl]
     return model.validation_epoch_end(outputs)
 
+print(f"{numerator}/{denominator} RESULTS:")
 result = evaluate(model,test_dl)
-print(result)
+print(f"10000: {result}")
 results = [result]
 for cluster in clusters:
     result = evaluate(model,test_dl,cluster)
     results.append(results)
     print(f"{cluster:3d}: {result}")
-

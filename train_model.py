@@ -9,6 +9,7 @@ import torchvision.transforms as tt
 from torchvision.utils import make_grid
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split,ConcatDataset
+from vector_quantize_pytorch import VectorQuantize
 
 stats = ((0.5074,0.4867,0.4411),(0.2011,0.1987,0.2025))
 train_transform = tt.Compose([
@@ -83,7 +84,7 @@ def accuracy(predicted,actual):
 class BaseModel(nn.Module):
     def training_step(self,batch):
         images,labels = batch
-        out = self(images)
+        out, loss = self(images)
         loss = F.cross_entropy(out,labels)
         return loss
     
@@ -166,6 +167,15 @@ class MResnet(BaseModel):
         self.avgpool = nn.AvgPool2d(kernel_size=(4))
         self.flatt = nn.Flatten()
         self.final = nn.Linear(1024, num_classes)
+
+        self.vq = VectorQuantize(
+            dim = 256,
+            codebook_dim = 32,                  # a number of papers have shown smaller codebook dimension to be acceptable
+            heads = 8,                          # number of heads to vector quantize, codebook shared across all heads
+            separate_codebook_per_head = True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
+            codebook_size = 8196,
+            accept_image_fmap = True
+        )
         
     def forward(self,inputs):
         out = self.stg1(inputs)
@@ -192,8 +202,10 @@ class MResnet(BaseModel):
         out = self.avgpool(out)
         out = self.flatt(out)
 
+        quantized, _, loss = self.vq(out)
+
         out = self.final(out)
-        return out
+        return out, loss
         
 model = MResnet(3,100)
 model = to_device(model,device)
